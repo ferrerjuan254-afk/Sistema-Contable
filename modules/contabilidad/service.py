@@ -5,9 +5,13 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 
 from core.models.contabilidad import (
-    PlanCuenta, PeriodoContable, Asiento, 
-    Movimiento, EstadoPeriodo, EstadoAsiento
+    PlanCuenta, PeriodoContable, Asiento,
+    Movimiento, EstadoPeriodo, EstadoAsiento,
+    PucContenido, FuenteContable,
+    NaturalezaCuenta, ClaseCuenta, TipoCuenta,
+    NivelCuenta, ModuloCuenta
 )
+
 
 class ContabilidadService:
     def __init__(self, db: Session, empresa_id: int):
@@ -15,10 +19,9 @@ class ContabilidadService:
         self.empresa_id = empresa_id
 
     # ══════════════════════════════════════════════════════════════
-    # MÉTODOS: Plan de Cuentas (PUC)
+    # Plan de Cuentas
     # ══════════════════════════════════════════════════════════════
     def listar_puc(self) -> List[PlanCuenta]:
-        """Retorna el árbol del Plan Único de Cuentas ordenado por código."""
         return (
             self.db.query(PlanCuenta)
             .filter(PlanCuenta.empresa_id == self.empresa_id)
@@ -26,21 +29,63 @@ class ContabilidadService:
             .all()
         )
 
-    def buscar_cuentas(self, criterio: str) -> List[PlanCuenta]:
-        """Busca cuentas auxiliares o mayores que coincidan con código o nombre."""
+    def buscar_cuentas(self, criterio: str, solo_movibles: bool = False) -> List[PlanCuenta]:
         term = f"%{criterio}%"
-        return (
+        q = (
             self.db.query(PlanCuenta)
             .filter(
                 PlanCuenta.empresa_id == self.empresa_id,
                 (PlanCuenta.codigo.ilike(term)) | (PlanCuenta.nombre.ilike(term))
             )
-            .order_by(PlanCuenta.codigo)
-            .all()
         )
+        if solo_movibles:
+            q = q.filter(PlanCuenta.acepta_mov == True)
+        return q.order_by(PlanCuenta.codigo).limit(50).all()
+
+    def crear_cuenta(self, datos: dict) -> PlanCuenta:
+        """Crea una nueva cuenta en el PUC de la empresa."""
+        # Validar que el código no exista
+        existe = self.db.query(PlanCuenta).filter(
+            PlanCuenta.empresa_id == self.empresa_id,
+            PlanCuenta.codigo == datos["codigo"]
+        ).first()
+        if existe:
+            raise ValueError(f"Ya existe una cuenta con el código {datos['codigo']}.")
+
+        cuenta = PlanCuenta(
+            empresa_id   = self.empresa_id,
+            codigo       = datos["codigo"],
+            nombre       = datos["nombre"],
+            naturaleza   = datos["naturaleza"],
+            clase        = datos.get("clase"),
+            tipo         = datos.get("tipo"),
+            nivel_nombre = datos.get("nivel_nombre"),
+            nivel        = datos["nivel"],
+            cuenta_padre = datos.get("cuenta_padre"),
+            acepta_mov   = datos.get("acepta_mov", True),
+            es_retencion = datos.get("es_retencion", False),
+            es_impuesto  = datos.get("es_impuesto", False),
+            tarifa_pct   = datos.get("tarifa_pct"),
+            modulo       = datos.get("modulo", ModuloCuenta.GENERAL),
+            activa       = True,
+        )
+        self.db.add(cuenta)
+        self.db.commit()
+        self.db.refresh(cuenta)
+        return cuenta
+
+    def obtener_contenido_puc(self, codigo: str) -> Optional[PucContenido]:
+        """Devuelve el HTML unificado (descripción + dinámica) para el código dado."""
+        return self.db.query(PucContenido).filter(PucContenido.codigo == codigo).first()
 
     # ══════════════════════════════════════════════════════════════
-    # MÉTODOS: Periodos Contables
+    # Fuentes Contables
+    # ══════════════════════════════════════════════════════════════
+    def listar_fuentes(self) -> List[FuenteContable]:
+        return self.db.query(FuenteContable).order_by(FuenteContable.codigo).all()
+
+    # ══════════════════════════════════════════════════════════════
+    # Periodos Contables
     # ══════════════════════════════════════════════════════════════
     def listar_periodos(self) -> List[PeriodoContable]:
         return (
@@ -51,7 +96,6 @@ class ContabilidadService:
         )
 
     def crear_periodo(self, anio: int, mes: int) -> PeriodoContable:
-        # Validar duplicados
         existe = (
             self.db.query(PeriodoContable)
             .filter(
@@ -63,16 +107,16 @@ class ContabilidadService:
         if existe:
             raise ValueError(f"El periodo contable {mes}/{anio} ya existe para esta empresa.")
 
-        nuevo_periodo = PeriodoContable(
+        nuevo = PeriodoContable(
             empresa_id=self.empresa_id,
             anio=anio,
             mes=mes,
             estado=EstadoPeriodo.ABIERTO
         )
-        self.db.add(nuevo_periodo)
+        self.db.add(nuevo)
         self.db.commit()
-        self.db.refresh(nuevo_periodo)
-        return nuevo_periodo
+        self.db.refresh(nuevo)
+        return nuevo
 
     def cerrar_periodo(self, periodo_id: int) -> PeriodoContable:
         periodo = (
@@ -82,17 +126,14 @@ class ContabilidadService:
         )
         if not periodo:
             raise ValueError("Periodo contable no encontrado.")
-        
-        # Opcional: Validar que no existan asientos descuadrados o en borrador antes de cerrar
-        asientos_abiertos = (
+
+        borradores = (
             self.db.query(Asiento)
-            .filter(
-                Asiento.periodo_id == periodo_id,
-                Asiento.estado == EstadoAsiento.BORRADOR
-            ).count()
+            .filter(Asiento.periodo_id == periodo_id, Asiento.estado == EstadoAsiento.BORRADOR)
+            .count()
         )
-        if asientos_abiertos > 0:
-            raise ValueError("No se puede cerrar el periodo: Existen asientos en estado Borrador.")
+        if borradores > 0:
+            raise ValueError("No se puede cerrar el periodo: existen asientos en estado Borrador.")
 
         periodo.estado = EstadoPeriodo.CERRADO
         self.db.commit()
@@ -100,115 +141,113 @@ class ContabilidadService:
         return periodo
 
     # ══════════════════════════════════════════════════════════════
-    # MÉTODOS: Asientos y Diario
+    # Asientos y Diario
     # ══════════════════════════════════════════════════════════════
     def listar_asientos(self, periodo_id: Optional[int] = None) -> List[Asiento]:
-        query = (
+        q = (
             self.db.query(Asiento)
             .options(joinedload(Asiento.movimientos))
             .filter(Asiento.empresa_id == self.empresa_id)
         )
         if periodo_id:
-            query = query.filter(Asiento.periodo_id == periodo_id)
-        
-        return query.order_by(Asiento.fecha.desc(), Asiento.id.desc()).all()
+            q = q.filter(Asiento.periodo_id == periodo_id)
+        return q.order_by(Asiento.fecha.desc(), Asiento.id.desc()).all()
 
     def obtener_asiento(self, asiento_id: int) -> Optional[Asiento]:
         return (
             self.db.query(Asiento)
             .options(
                 joinedload(Asiento.movimientos)
-                .joinedload(Movimiento.cuenta)
+                .joinedload(Movimiento.cuenta),
+                joinedload(Asiento.movimientos)
+                .joinedload(Movimiento.tercero),
+                joinedload(Asiento.fuente),
             )
             .filter(Asiento.id == asiento_id, Asiento.empresa_id == self.empresa_id)
             .first()
         )
 
-    def crear_asiento(self, periodo_id: int, fecha: date, descripcion: str, lineas: List[Dict[str, Any]]) -> Asiento:
-        # 1. Validar estado del periodo
+    def crear_asiento(
+        self,
+        periodo_id: int,
+        fecha: date,
+        descripcion: str,
+        lineas: List[Dict[str, Any]],
+        fuente_id: Optional[int] = None,
+    ) -> Asiento:
         periodo = self.db.query(PeriodoContable).filter(PeriodoContable.id == periodo_id).first()
         if not periodo or periodo.estado == EstadoPeriodo.CERRADO:
             raise ValueError("El periodo contable seleccionado está cerrado o no existe.")
 
         if fecha.year != periodo.anio or fecha.month != periodo.mes:
-            raise ValueError(f"La fecha del asiento no corresponde al año/mes del periodo ({periodo.mes}/{periodo.anio}).")
+            raise ValueError(f"La fecha no corresponde al periodo ({periodo.mes}/{periodo.anio}).")
 
-        # 2. Validar principio de Partida Doble
-        total_debito = Decimal("0")
-        total_credito = Decimal("0")
-        
+        total_db = Decimal("0")
+        total_cr = Decimal("0")
         for l in lineas:
-            total_debito += Decimal(str(l.get("debito", 0)))
-            total_credito += Decimal(str(l.get("credito", 0)))
+            total_db += Decimal(str(l.get("debito", 0)))
+            total_cr += Decimal(str(l.get("credito", 0)))
 
-        if total_debito != total_credito:
-            raise ValueError(f"Asiento descuadrado. Débitos: ${total_debito:,.2f} | Créditos: ${total_credito:,.2f}")
-        
-        if total_debito <= 0:
+        if total_db != total_cr:
+            raise ValueError(f"Asiento descuadrado. Débitos: ${total_db:,.2f} | Créditos: ${total_cr:,.2f}")
+        if total_db <= 0:
             raise ValueError("El total del asiento debe ser mayor a cero.")
 
-        # 3. Generar consecutivo numérico único por Empresa
         max_num = self.db.query(func.max(Asiento.numero)).filter(Asiento.empresa_id == self.empresa_id).scalar()
         try:
-            nuevo_numero = str(int(max_num) + 1).zfill(6) if max_num and max_num.isdigit() else "000001"
+            nuevo_numero = str(int(max_num) + 1).zfill(6) if max_num and str(max_num).isdigit() else "000001"
         except (ValueError, TypeError):
             nuevo_numero = "000001"
 
-        # 4. Crear Cabecera del Asiento
         asiento = Asiento(
-            empresa_id=self.empresa_id,
-            periodo_id=periodo_id,
-            numero=nuevo_numero,
-            fecha=fecha,
-            descripcion=descripcion,
-            estado=EstadoAsiento.CONFIRMADO
+            empresa_id  = self.empresa_id,
+            periodo_id  = periodo_id,
+            fuente_id   = fuente_id,
+            numero      = nuevo_numero,
+            fecha       = fecha,
+            descripcion = descripcion,
+            estado      = EstadoAsiento.CONFIRMADO
         )
         self.db.add(asiento)
-        self.db.flush()  # Obtener ID del asiento
+        self.db.flush()
 
-
-        # 5. Registrar movimientos apuntados a cuentas válidas que acepten movimientos
         try:
             for l in lineas:
                 cuenta = self.db.query(PlanCuenta).filter(PlanCuenta.id == l["cuenta_id"]).first()
                 if not cuenta:
                     raise ValueError(f"La cuenta con ID {l['cuenta_id']} no existe.")
                 if not cuenta.acepta_mov:
-                    raise ValueError(f"La cuenta {cuenta.codigo} es una cuenta de grupo/mayor y no acepta movimientos directos.")
+                    raise ValueError(f"La cuenta {cuenta.codigo} no acepta movimientos directos.")
 
-                movimiento = Movimiento(
-                    empresa_id=self.empresa_id,
-                    asiento_id=asiento.id,
-                    cuenta_id=cuenta.id,
-                    debito=Decimal(str(l["debito"])),
-                    credito=Decimal(str(l["credito"])),
-                    descripcion=l.get("descripcion", "")
+                mov = Movimiento(
+                    empresa_id  = self.empresa_id,
+                    asiento_id  = asiento.id,
+                    cuenta_id   = cuenta.id,
+                    tercero_id  = l.get("tercero_id"),
+                    debito      = Decimal(str(l["debito"])),
+                    credito     = Decimal(str(l["credito"])),
+                    descripcion = l.get("descripcion", ""),
                 )
-                self.db.add(movimiento)
+                self.db.add(mov)
 
             self.db.commit()
             return self.obtener_asiento(asiento.id)
-            
         except Exception as e:
-            self.db.rollback()  # 🧼 Cancela el flush previo y libera la sesión si algo sale mal
+            self.db.rollback()
             raise e
 
     def anular_asiento(self, asiento_id: int) -> Asiento:
         asiento = self.obtener_asiento(asiento_id)
         if not asiento:
             raise ValueError("El asiento contable no existe.")
-        
         if asiento.periodo.estado == EstadoPeriodo.CERRADO:
-            raise ValueError("No se puede anular un asiento de un periodo contable cerrado.")
-            
+            raise ValueError("No se puede anular un asiento de un periodo cerrado.")
         if asiento.estado == EstadoAsiento.ANULADO:
-            raise ValueError("El asiento ya se encuentra anulado.")
+            raise ValueError("El asiento ya está anulado.")
 
         asiento.estado = EstadoAsiento.ANULADO
-        
-        # En contabilidad formal, los movimientos de un asiento anulado se llevan a cero
         for mov in asiento.movimientos:
-            mov.debito = Decimal("0.00")
+            mov.debito  = Decimal("0.00")
             mov.credito = Decimal("0.00")
 
         self.db.commit()
