@@ -4,6 +4,7 @@ from core.database import init_db
 from ui.main_window import MainWindow
 
 
+
 def main():
     # Inicializar tablas si no existen
     init_db()
