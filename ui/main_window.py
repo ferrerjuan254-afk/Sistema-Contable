@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
-    QStatusBar, QComboBox, QPushButton, QStackedWidget
+    QStatusBar, QComboBox, QPushButton, QStackedWidget, QMessageBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -89,11 +89,12 @@ class MainWindow(QMainWindow):
 
         self._modulos = [
             ("🏢", "Empresas / Sedes",  self._abrir_empresas),
+            ("👥", "Terceros",           self._abrir_terceros),
             ("📒", "Contabilidad",       self._abrir_contabilidad),
-            ("🧾", "Facturación",        self._pronto),
-            ("💰", "Tesorería",          self._pronto),
-            ("👥", "Nómina",             self._pronto),
-            ("🛡️", "Seguridad Social",   self._pronto),
+            ("🧾", "Facturación",        self._abrir_facturacion),
+            ("💰", "Tesorería",          self._abrir_tesoreria),
+            ("👷", "Nómina",             self._abrir_nomina),
+            ("🛡️", "Seguridad Social",   self._abrir_seguridad_social),
             ("📋", "Impuestos",          self._pronto),
             ("📊", "Reportes",           self._pronto),
             ("⚙️", "Configuración",      self._pronto),
@@ -149,6 +150,21 @@ class MainWindow(QMainWindow):
         self._cargar_empresas_combo()
         self.status.showMessage("Módulo: Empresas y Sedes")
 
+    def _abrir_terceros(self):
+        empresa_id = self.empresa_activa_id
+        if not empresa_id:
+            QMessageBox.information(self, "Sin empresa",
+                                    "Selecciona una empresa en la barra superior.")
+            return
+        clave = f"_widget_terceros_{empresa_id}"
+        if not hasattr(self, clave):
+            from modules.terceros.widget import TercerosWidget
+            widget = TercerosWidget(empresa_id)
+            self.stack.addWidget(widget)
+            setattr(self, clave, widget)
+        self.stack.setCurrentWidget(getattr(self, clave))
+        self.status.showMessage("Módulo: Terceros")
+
     def _abrir_contabilidad(self):
         # Siempre recrea si cambió la empresa
         empresa_id = self.empresa_activa_id
@@ -160,6 +176,69 @@ class MainWindow(QMainWindow):
             setattr(self, clave, widget)
         self.stack.setCurrentWidget(getattr(self, clave))
         self.status.showMessage("Módulo: Contabilidad")
+
+    def _abrir_seguridad_social(self):
+        empresa_id = self.empresa_activa_id
+        if not empresa_id:
+            QMessageBox.information(self, "Sin empresa",
+                                    "Selecciona una empresa en la barra superior.")
+            return
+        clave = f"_widget_ss_{empresa_id}"
+        if not hasattr(self, clave):
+            from modules.seguridad_social.widget import SeguridadSocialWidget
+            widget = SeguridadSocialWidget(empresa_id)
+            self.stack.addWidget(widget)
+            setattr(self, clave, widget)
+        self.stack.setCurrentWidget(getattr(self, clave))
+        self.status.showMessage("Módulo: Seguridad Social")
+
+    def _abrir_tesoreria(self):
+        empresa_id = self.empresa_activa_id
+        if not empresa_id:
+            QMessageBox.information(self, "Sin empresa",
+                                    "Selecciona una empresa en la barra superior.")
+            return
+        clave = f"_widget_tesoreria_{empresa_id}"
+        if not hasattr(self, clave):
+            from core.database import engine, Base
+            from core.models import tesoreria  # noqa
+            Base.metadata.create_all(bind=engine)
+            from modules.tesoreria.widget import TesoreriaWidget
+            widget = TesoreriaWidget(empresa_id)
+            self.stack.addWidget(widget)
+            setattr(self, clave, widget)
+        self.stack.setCurrentWidget(getattr(self, clave))
+        self.status.showMessage("Módulo: Tesorería")
+
+    def _abrir_facturacion(self):
+        empresa_id = self.empresa_activa_id
+        if not empresa_id:
+            QMessageBox.information(self, "Sin empresa",
+                                    "Selecciona una empresa en la barra superior.")
+            return
+        clave = f"_widget_facturacion_{empresa_id}"
+        if not hasattr(self, clave):
+            from modules.facturacion.widget import FacturacionWidget
+            widget = FacturacionWidget(empresa_id)
+            self.stack.addWidget(widget)
+            setattr(self, clave, widget)
+        self.stack.setCurrentWidget(getattr(self, clave))
+        self.status.showMessage("Módulo: Facturación")
+
+    def _abrir_nomina(self):
+        empresa_id = self.empresa_activa_id
+        if not empresa_id:
+            QMessageBox.information(self, "Sin empresa",
+                                    "Selecciona una empresa en la barra superior.")
+            return
+        clave = f"_widget_nomina_{empresa_id}"
+        if not hasattr(self, clave):
+            from modules.nomina.widget import NominaWidget
+            widget = NominaWidget(empresa_id)
+            self.stack.addWidget(widget)
+            setattr(self, clave, widget)
+        self.stack.setCurrentWidget(getattr(self, clave))
+        self.status.showMessage("Módulo: Nómina")
 
     def _pronto(self):
         if not hasattr(self, "_widget_pronto"):
