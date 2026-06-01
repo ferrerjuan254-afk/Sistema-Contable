@@ -7,6 +7,7 @@ from core.models.nomina import (
     Empleado, ConceptoNomina, Liquidacion,
     DetalleLiquidacion, AportesSeguridadSocial
 )
+from core.models.impuestos import Retencion, DeclaracionImpuesto
 
 __all__ = [
     "Empresa", "Sede",
@@ -15,4 +16,5 @@ __all__ = [
     "PlanCuenta", "PeriodoContable", "Asiento", "Movimiento",
     "Empleado", "ConceptoNomina", "Liquidacion",
     "DetalleLiquidacion", "AportesSeguridadSocial",
+    "Retencion", "DeclaracionImpuesto",
 ]
