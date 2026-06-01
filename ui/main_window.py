@@ -95,7 +95,7 @@ class MainWindow(QMainWindow):
             ("💰", "Tesorería",          self._abrir_tesoreria),
             ("👷", "Nómina",             self._abrir_nomina),
             ("🛡️", "Seguridad Social",   self._abrir_seguridad_social),
-            ("📋", "Impuestos",          self._pronto),
+            ("📋", "Impuestos",          self._abrir_impuestos),
             ("📊", "Reportes",           self._pronto),
             ("⚙️", "Configuración",      self._pronto),
         ]
@@ -239,6 +239,22 @@ class MainWindow(QMainWindow):
             setattr(self, clave, widget)
         self.stack.setCurrentWidget(getattr(self, clave))
         self.status.showMessage("Módulo: Nómina")
+        
+    def _abrir_impuestos(self):
+        empresa_id = self.empresa_activa_id
+        if not empresa_id:
+            QMessageBox.information(self, "Sin empresa",
+                                    "Selecciona una empresa en la barra superior.")
+            return
+        clave = f"_widget_impuestos_{empresa_id}"
+        if not hasattr(self, clave):
+            from modules.impuestos.widget import ImpuestosWidget
+            widget = ImpuestosWidget(empresa_id)
+            self.stack.addWidget(widget)
+            setattr(self, clave, widget)
+        self.stack.setCurrentWidget(getattr(self, clave))
+        self.status.showMessage("Módulo: Impuestos")
+        
 
     def _pronto(self):
         if not hasattr(self, "_widget_pronto"):
@@ -248,7 +264,7 @@ class MainWindow(QMainWindow):
             lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl = QLabel("🚧  Módulo en desarrollo")
             lbl.setFont(QFont("Segoe UI", 16))
-            lbl.setStyleSheet("color:#94a3b8;")
+            lbl.setStyleSheet("color:#94a3b8;") 
             lay.addWidget(lbl)
             self._widget_pronto = w
             self.stack.addWidget(w)
