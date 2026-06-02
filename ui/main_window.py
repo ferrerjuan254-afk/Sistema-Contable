@@ -96,7 +96,7 @@ class MainWindow(QMainWindow):
             ("👷", "Nómina",             self._abrir_nomina),
             ("🛡️", "Seguridad Social",   self._abrir_seguridad_social),
             ("📋", "Impuestos",          self._abrir_impuestos),
-            ("📊", "Reportes",           self._pronto),
+            ("📊", "Reportes",           self._abrir_reportes),
             ("⚙️", "Configuración",      self._pronto),
         ]
 
@@ -254,6 +254,22 @@ class MainWindow(QMainWindow):
             setattr(self, clave, widget)
         self.stack.setCurrentWidget(getattr(self, clave))
         self.status.showMessage("Módulo: Impuestos")
+        
+        
+    def _abrir_reportes(self):
+        empresa_id = self.empresa_activa_id
+        if not empresa_id:
+            QMessageBox.information(self, "Sin empresa",
+                                    "Selecciona una empresa en la barra superior.")
+            return
+        clave = f"_widget_reportes_{empresa_id}"
+        if not hasattr(self, clave):
+            from modules.reportes.widget import ReportesWidget
+            widget = ReportesWidget(empresa_id)
+            self.stack.addWidget(widget)
+            setattr(self, clave, widget)
+        self.stack.setCurrentWidget(getattr(self, clave))
+        self.status.showMessage("Módulo: Reportes")
         
 
     def _pronto(self):
